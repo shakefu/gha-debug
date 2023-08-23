@@ -14,7 +14,3 @@ function gha_debug {
     env | sort
 }
 export -f gha_debug
-
-echo "debug.sh Functions:"
-declare -F
-echo

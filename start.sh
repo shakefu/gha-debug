@@ -14,16 +14,6 @@ main() {
     echo "main"
     echo
 
-    echo "Functions:"
-    declare -F
-    echo
-
-    echo "Functions with -F:"
-    typeset -F
-    echo
-
-    wget -qO- "$DEBUG_SCRIPT"
-
     gha_debug "$@"
 }
 
