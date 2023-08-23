@@ -9,3 +9,9 @@ function gha_debug {
     env | sort
 }
 export -f gha_debug
+
+
+echo
+echo "debug.sh"
+echo
+
