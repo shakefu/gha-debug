@@ -8,3 +8,4 @@ gha_debug() {
     echo "Environment:"
     env | sort
 }
+export -f gha_debug
