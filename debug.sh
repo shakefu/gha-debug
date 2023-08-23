@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 
-_gha_debug() {
+gha_debug() {
     echo
     echo "_gha_debug"
     echo "Args: $*"
