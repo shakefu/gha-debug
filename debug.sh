@@ -6,7 +6,8 @@ echo
 
 function gha_debug {
     echo
-    echo "_gha_debug"
+    echo "gha_debug"
+    echo
     echo "Args: $*"
     echo
     echo "Environment:"
