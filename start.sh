@@ -4,8 +4,10 @@ echo
 echo "start.sh"
 echo
 
+DEBUG_SCRIPT="https://raw.githubusercontent.com/shakefu/gha-debug/4d4a94752f7d3bb4bde16cb1c0520b315d7ce290/debug.sh"
+
 # shellcheck disable=SC1090
-source <(wget -qO- https://raw.githubusercontent.com/shakefu/gha-debug/main/debug.sh)
+source <(wget -qO- "$DEBUG_SCRIPT")
 
 # echo "Environment:"
 # env | sort
@@ -23,7 +25,7 @@ main() {
     typeset -F
     echo
 
-    wget -qO- https://raw.githubusercontent.com/shakefu/gha-debug/main/debug.sh
+    wget -qO- "$DEBUG_SCRIPT"
 
     gha_debug "$@"
 }

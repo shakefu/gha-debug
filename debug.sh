@@ -1,5 +1,9 @@
 # shellcheck shell=bash
 
+echo
+echo "debug.sh"
+echo
+
 function gha_debug {
     echo
     echo "_gha_debug"
@@ -10,8 +14,6 @@ function gha_debug {
 }
 export -f gha_debug
 
-
+echo "debug.sh Functions:"
+declare -F
 echo
-echo "debug.sh"
-echo
-
