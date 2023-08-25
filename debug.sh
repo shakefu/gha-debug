@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 
 echo
-echo "debug.sh"
+echo "debug.sh v1.0.0"
 echo
 
 function gha_debug {
@@ -17,6 +17,13 @@ function gha_debug {
         unset "$name"
     done
     env | sort
+    echo
+    echo "Event:"
+    echo
+    if [[ -f "$GITHUB_EVENT_PATH" ]]; then
+        cat "$GITHUB_EVENT_PATH"
+    fi
+    echo "Debug finished!"
     # env | sort
     # env | awk 'sub(/}/,"}\n")||$1=$1' ORS=''
 }
