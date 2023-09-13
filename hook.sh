@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 echo
-echo "start.sh"
+echo "hook.sh"
 echo
 
 DEBUG_SHA="main"

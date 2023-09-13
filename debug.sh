@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 
 echo
-echo "debug.sh v1.0.0"
+echo "debug.sh v1.3.0"
 echo
 
 function gha_debug {
@@ -17,14 +17,40 @@ function gha_debug {
         unset "$name"
     done
     env | sort
-    echo
-    echo "Event:"
-    echo
-    if [[ -f "$GITHUB_EVENT_PATH" ]]; then
-        cat "$GITHUB_EVENT_PATH"
-    fi
+
+    # This doesn't have state/success/failure info
+    # if [[ -f "$GITHUB_EVENT_PATH" ]]; then
+    #     echo
+    #     echo "Event:"
+    #     echo
+    #     cat "$GITHUB_EVENT_PATH"
+    # fi
+
+    # This appears to be the writable state
+    # if [[ -f "$GITHUB_STATE" ]]; then
+    #     echo
+    #     echo "State:"
+    #     echo
+    #     cat "$GITHUB_STATE"
+    # fi
+
+    # This appears to be the writable human readable step summary
+    # if [[ -f "$GITHUB_STEP_SUMMARY" ]]; then
+    #     echo
+    #     echo "Step summary:"
+    #     echo
+    #     cat "$GITHUB_STEP_SUMMARY"
+    # fi
+
     echo "Debug finished!"
-    # env | sort
-    # env | awk 'sub(/}/,"}\n")||$1=$1' ORS=''
+
+    # Sleep to allow for debug checking via the API
+    if [[ "$0" == "/end.sh" ]]; then
+        echo "Sleeping ..."
+        sleep 120
+        # echo "Getting run state, run_id=$GITHUB_RUN_ID"
+        # [[ -n "$GITHUB_TOKEN" ]] || echo "GITHUB_TOKEN not set, trying anyway"
+        # gh api "/repos/turo/github-actions-runner-deployments/actions/runs/$GITHUB_RUN_ID/jobs" | jq .
+    fi
 }
 export -f gha_debug
