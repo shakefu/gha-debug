@@ -160,6 +160,17 @@ func NewTransaction(newRelicApp string, newRelicLicense string, lock *SoftLock, 
 	var app *newrelic.Application
 	var err error
 
+	// Application is GITHUB_REPOSITORY "turo/github-actions-runner-deployemtns"
+	// Transaction Name is GITHUB_WORKFLOW + GITHUB_JOB (+ branch name???)
+	// "GHA Scale Set / gha-scale-set-test-secondary"
+	// No segments
+	// Attributes:
+	//   branch (GITHUB_HEAD_REF)
+	//   URL (availble via the API call OR use the `/runs/{run_id}` endpoint)
+	//   run attempt (GITHUB_RUN_NUMBER)
+	//   actor (GITHUB_ACTOR)
+	//   triggering actor (GITHUB_TRIGGERING_ACTOR)
+
 	// Mock out the NR App if we don't have a license
 	if newRelicApp == "" || newRelicLicense == "" {
 		// This is nil-safe/the correct mocking behavior according to:
