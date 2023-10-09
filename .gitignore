@@ -7,3 +7,4 @@ github_app_installation_id
 github_app_private_key
 .vscode
 coverprofile.out
+*.test
