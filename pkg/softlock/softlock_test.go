@@ -17,39 +17,42 @@ func TestSoftLock(t *testing.T) {
 }
 
 var _ = Describe("SoftLock", func() {
-	var sl *SoftLock = nil
-	BeforeEach(func() {
-		if sl != nil {
-			sl.Close()
-			sl = nil
-		}
-		sl = NewSoftLock()
-	})
-
-	Context("Start", func() {
-		It("should be true on first call", func() {
-			Expect(sl.Start()).To(BeTrue())
+	Context("Simple tests", func() {
+		var sl *SoftLock = nil
+		BeforeEach(func() {
+			if sl != nil {
+				sl.Close()
+				sl = nil
+			}
+			sl = NewSoftLock()
 		})
 
-		It("should be false on second call", func() {
-			Expect(sl.Start()).To(BeTrue())
-			Expect(sl.Start()).To(BeFalse())
-		})
-	})
+		Context("Start", func() {
+			It("should be true on first call", func() {
+				Expect(sl.Start()).To(BeTrue())
+			})
 
-	Context("Started", func() {
-		It("should be false before we start", func() {
-			Expect(sl.Started()).To(BeFalse())
+			It("should be false on second call", func() {
+				Expect(sl.Start()).To(BeTrue())
+				Expect(sl.Start()).To(BeFalse())
+			})
 		})
-		It("should be true after Start() is called", func() {
-			Expect(sl.Start()).To(BeTrue())
-			Expect(sl.Started()).To(BeTrue())
+
+		Context("Started", func() {
+			It("should be false before we start", func() {
+				Expect(sl.Started()).To(BeFalse())
+			})
+			It("should be true after Start() is called", func() {
+				Expect(sl.Start()).To(BeTrue())
+				Expect(sl.Started()).To(BeTrue())
+			})
 		})
 	})
 
 	Context("Wait", func() {
 		It("should not block until started", func() {
-			var count = 1
+			sl := NewSoftLock()
+			done := make(chan interface{})
 
 			By("checking lock is unstarted")
 			Expect(sl.Started()).To(BeFalse())
@@ -58,41 +61,32 @@ var _ = Describe("SoftLock", func() {
 
 			// By("creating closure goroutine")
 			go func() {
-				count += 1
 				// By("starting lock")
 				sl.Start()
-				count += 1
+			}()
+
+			go func() {
 				// By("releasing lock")
+				sl.WaitForStart()
 				sl.Release()
-				count += 1
+			}()
+
+			go func() {
+				sl.Wait()
+				close(done)
 			}()
 
 			// This is actually non-deterministic ... the By() seems to yield
 
-			// By("checking counter before wait")
-			Expect(count).To(Equal(1))
-
 			// By("waiting")
-			sl.Wait()
+			Eventually(done).Should(BeClosed())
 
-			// By("checking counter after wait")
-			Expect(count).To(Equal(1))
-
-			// By("ensuring lock never started")
-			Expect(sl.Started()).To(BeFalse())
-			// runtime.Gosched()
-			// Never called Done()
-			Expect(sl.Finished()).To(BeFalse())
-			// We yield twice cause the goroutine will yield back to us in a weird way otherwise
-			runtime.Gosched()
-			runtime.Gosched()
-			// These should be true though
-			// By("checking started")
 			Expect(sl.Started()).To(BeTrue())
-			runtime.Gosched()
-			// By("checking released")
 			Expect(sl.Released()).To(BeTrue())
-			Expect(count).To(Equal(4))
+			Expect(sl.Finished()).To(BeFalse())
+
+			sl.Done()
+			Expect(sl.Finished()).To(BeTrue())
 		})
 	})
 
@@ -104,6 +98,7 @@ var _ = Describe("SoftLock", func() {
 		})
 
 		It("should release a waiting goroutine", func() {
+			sl := NewSoftLock()
 			By("starting the lock")
 			sl.Start()
 			m.Lock()
@@ -122,6 +117,7 @@ var _ = Describe("SoftLock", func() {
 		})
 
 		It("should do nothing if not started", func() {
+			sl := NewSoftLock()
 			sl.Release()
 			Expect(sl.Released()).To(BeFalse())
 			sl.Start()
@@ -129,6 +125,7 @@ var _ = Describe("SoftLock", func() {
 		})
 
 		It("should change released state", func() {
+			sl := NewSoftLock()
 			sl.Release()
 			Expect(sl.Released()).To(BeFalse())
 			sl.Start()
@@ -139,39 +136,29 @@ var _ = Describe("SoftLock", func() {
 	})
 
 	Context("Close", func() {
-		var m sync.Mutex
-
-		BeforeEach(func() {
-			m = sync.Mutex{}
-		})
-
 		It("should clean up the soft lock", func() {
-			// Lock the mutex
-			m.Lock()
+			done := make(chan interface{})
+			sl := NewSoftLock()
+
 			// Schedule goroutine to unlock when done
 			go func() {
 				sl.WaitForDone()
-				m.Unlock()
+				close(done)
 			}()
-			// Can't acquire the lock
-			Expect(m.TryLock()).To(BeFalse())
-			// Yield to the goroutine (blocked by WaitForDone)
-			runtime.Gosched()
-			// Can't acquire the lock
-			Expect(m.TryLock()).To(BeFalse())
+
 			// Close also calls Done
 			sl.Close()
-			// Yield to goroutine to unlock
-			runtime.Gosched()
-			// Can acquire the lock
-			Expect(m.TryLock()).To(BeTrue())
-			// All the state has progressed
+
+			// Wait for the goroutine to finish
+			Eventually(done).Should(BeClosed())
+
 			Expect(sl.Started()).To(BeTrue())
 			Expect(sl.Released()).To(BeTrue())
 			Expect(sl.Finished()).To(BeTrue())
 		})
 
 		It("should work on a started lock", func() {
+			sl := NewSoftLock()
 			Expect(sl.Started()).To(BeFalse())
 			sl.Start()
 			Expect(sl.Started()).To(BeTrue())
@@ -183,6 +170,7 @@ var _ = Describe("SoftLock", func() {
 		})
 
 		It("should work on a released lock", func() {
+			sl := NewSoftLock()
 			sl.Start()
 			Expect(sl.Released()).To(BeFalse())
 			sl.Release()
@@ -195,6 +183,7 @@ var _ = Describe("SoftLock", func() {
 		})
 
 		It("should work on a done lock", func() {
+			sl := NewSoftLock()
 			sl.Start()
 			sl.Release()
 			Expect(sl.Finished()).To(BeFalse())
@@ -210,13 +199,9 @@ var _ = Describe("SoftLock", func() {
 	})
 
 	Context("WaitForDone", func() {
-		var m sync.Mutex
-
-		BeforeEach(func() {
-			m = sync.Mutex{}
-		})
-
 		It("should block until done", func() {
+			sl := NewSoftLock()
+			done := make(chan interface{})
 			// Start the lock
 			sl.Start()
 			// Schedule a goroutine to release the lock
@@ -225,20 +210,13 @@ var _ = Describe("SoftLock", func() {
 				// Yield back to the closure
 				runtime.Gosched()
 				sl.Done()
-				m.Unlock()
+				close(done)
 			}()
-			// Lock the mutex
-			m.Lock()
-			// Yield to the release goroutine
-			runtime.Gosched()
-			// Hasn't been unlocked yet
-			Expect(m.TryLock()).To(BeFalse())
 			// Wait for the goroutine to finish (yielding)
 			sl.WaitForDone()
+			Eventually(done).Should(BeClosed())
 			// Lock is finished
 			Expect(sl.Finished()).To(BeTrue())
-			// Mutex is unlocked
-			Expect(m.TryLock()).To(BeTrue())
 		})
 	})
 })

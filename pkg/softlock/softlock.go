@@ -28,9 +28,9 @@ func (l *SoftLock) String() string {
 func NewSoftLock() *SoftLock {
 	return &SoftLock{
 		_started: false,
-		started:  make(chan struct{}, 1),
-		wait:     make(chan struct{}, 1),
-		done:     make(chan struct{}, 1),
+		started:  make(chan struct{}),
+		wait:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -53,17 +53,19 @@ func (l *SoftLock) Start() bool {
 
 // Started returns whether or not we've started our transaction.
 func (l *SoftLock) Started() bool {
+	l.m.Lock()
+	defer l.m.Unlock()
 	return l._started
 }
 
 // Release the soft lock allowing waiting goroutines to continue.
 func (l *SoftLock) Release() {
+	l.m.Lock()
+	defer l.m.Unlock()
 	if !l._started {
 		// If we're not started, we don't release
 		return
 	}
-	l.m.Lock()
-	defer l.m.Unlock()
 
 	// We've started, try to release the wait
 	select {
@@ -90,9 +92,12 @@ func (l *SoftLock) Released() bool {
 // Wait for the soft lock to be released. If the lock has not been started, this
 // will be a passthrough.
 func (l *SoftLock) Wait() {
+	l.m.Lock()
 	if !l._started {
+		defer l.m.Unlock()
 		return
 	}
+	l.m.Unlock()
 	select {
 	case <-l.wait:
 		// Already released, do nothing
@@ -143,8 +148,11 @@ func (l *SoftLock) WaitForDone() {
 // WaitForStart waits for the soft lock to start. If the lock has already been
 // started, this will be a passthrough.
 func (l *SoftLock) WaitForStart() {
+	l.m.Lock()
 	if l._started {
+		defer l.m.Unlock()
 		return
 	}
+	l.m.Unlock()
 	<-l.started
 }
