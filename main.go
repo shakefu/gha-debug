@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -15,133 +20,8 @@ import (
 	"github.com/google/go-github/v55/github"
 	"github.com/newrelic/go-agent/v3/newrelic"
 
-	. "github.com/shakefu/gha-debug/pkg/softlock"
+	"github.com/shakefu/gha-debug/pkg/fileflag"
 )
-
-// AppTransaction represents a single transaction to be monitored by NewRelic
-type AppTransaction struct {
-	app       *newrelic.Application // NewRelic application instance
-	txn       *newrelic.Transaction // NewRelic transaction instance
-	lock      *SoftLock             // Our shared lock for the transaction
-	startFile string                // Filename to read for starting context
-	endFile   string                // Filename to read for ending context
-	workflow  string                // Workflow name
-	job       string                // Job name
-}
-
-// NewTransaction creates a new AppTransaction instance and initializes the NewRelic app
-func NewTransaction(newRelicApp string, newRelicLicense string, lock *SoftLock, startFile string, endFile string) *AppTransaction {
-	// Create new NR app
-	var app *newrelic.Application
-	var err error
-
-	// Application is GITHUB_REPOSITORY "turo/github-actions-runner-deployemtns"
-	// AppTransaction Name is GITHUB_WORKFLOW + GITHUB_JOB (+ branch name???)
-	// "GHA Scale Set / gha-scale-set-test-secondary"
-	// No segments
-	// Attributes:
-	//   branch (GITHUB_HEAD_REF)
-	//   URL (availble via the API call OR use the `/runs/{run_id}` endpoint)
-	//   run attempt (GITHUB_RUN_NUMBER)
-	//   actor (GITHUB_ACTOR)
-	//   triggering actor (GITHUB_TRIGGERING_ACTOR)
-
-	// Mock out the NR App if we don't have a license
-	if newRelicApp == "" || newRelicLicense == "" {
-		// This is nil-safe/the correct mocking behavior according to:
-		// https://pkg.go.dev/github.com/newrelic/go-agent/v3@v3.24.1/newrelic#Application
-		app = nil
-		// app = &newrelic.Application{}
-	} else {
-		appName := newrelic.ConfigAppName(newRelicApp)
-		license := newrelic.ConfigLicense(newRelicLicense)
-		// Create the NR Application for this transaction
-		app, err = newrelic.NewApplication(appName, license)
-		if err != nil {
-			// This is a hard failure, we can't continue, so we panic
-			log.Fatal(err)
-		}
-	}
-	t := &AppTransaction{
-		app:       app,
-		txn:       nil,
-		lock:      lock,
-		startFile: startFile,
-		endFile:   endFile,
-	}
-	return t
-}
-
-// Monitor function - this is where we do the work
-func (t *AppTransaction) Monitor() {
-	// Ensure we always end nicely
-	defer t.Cleanup()
-
-	log.Info("Action started")
-
-	// Parse our context file so we can reference our names correctly
-	// t.ParseContext(t.startFile)
-
-	// Create the transaction name based on workflow and job
-	transaction := fmt.Sprintf("%s / %s", t.workflow, t.job)
-	t.txn = t.app.StartTransaction(transaction)
-
-	// Hang out here until we're finished
-	t.lock.Wait()
-
-	// Parse the end file
-	// TODO: Figure out if there's extra info in here that we actually want
-	// TODO: Figure out if we can get success/fail status without calling the API
-	// t.ParseContext(t.endFile)
-
-	log.Info("Action finished")
-}
-
-/*
-// ParseContext parses the GitHub Action context file JSON
-func (t *AppTransaction) ParseContext(filename string) {
-	var err error
-	var data []byte
-
-	data, err = os.ReadFile(filename)
-	if err != nil {
-		log.Fatal("Could not read context file", "err", err)
-	}
-	log.Debug("Context file", "context", string(data))
-
-	var context map[string]interface{}
-	err = json.Unmarshal(data, &context)
-	if err != nil {
-		log.Fatal("Could not parse context file", "err", err)
-	}
-
-	// TODO: Pull the workflow name and job name from the context
-}
-*/
-
-// Cleanup gives us a way to reliably end the transaction and clean up
-func (t *AppTransaction) Cleanup() {
-	// Ensure the lock is fully released and the program can exit fully, even if
-	// something goofy happens with the NR calls below
-	defer t.lock.Close()
-
-	// End the NR transaction
-	t.txn.End()
-
-	// Default to 60s timeout sending data to NR
-	t.app.Shutdown(60 * time.Second)
-}
-
-type ActionMonitor struct {
-}
-
-func NewActionMonitor(client *github.Client, app *newrelic.Application, txnName string) (monitor *ActionMonitor) {
-	return
-}
-
-func (monitor *ActionMonitor) Start() {
-	// Do nothing?
-}
 
 /*
  * Main CLI
@@ -161,7 +41,7 @@ type Cli struct {
 	ctx *kong.Context `kong:"-"`
 }
 
-// Parse returns a new Cli instance
+// Parse returns a new Cli instance from passed arguments
 func (cli *Cli) Parse() {
 	cli.ctx = kong.Parse(cli,
 		kong.Name("gha-debug"),
@@ -232,7 +112,7 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 	log.Debug("Start command")
 
 	/**
-	// Useless over- debugging
+	// Useless over-debugging
 	log.Debug("Repo", "repo", start.Repo)
 	log.Debug("Workflow", "workflow", start.Workflow)
 	log.Debug("Job", "job", start.Job)
@@ -242,52 +122,124 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 	log.Debug("GHAppIDSecret", "secret", string(start.GHAppIDSecret.Contents))
 	log.Debug("GHAppInstallIDSecret", "secret", string(start.GHAppInstallIDSecret.Contents))
 	log.Debug("GHAppPrivateKey", "secret", string(start.GHAppPrivateKey.Contents))
-	**/
 
-	// Get the GitHub client instance from our CLI params
-	client, err := start.GitHubClient()
-	if err != nil {
-		log.Fatal("Could not create GitHub client", "err", err)
-		return
-	}
+	log.Debug("GITHUB_RUN_ID", "env", os.Getenv("GITHUB_RUN_ID"))
+	log.Debug("RUNNER_NAME", "env", os.Getenv("RUNNER_NAME")
+	**/
 
 	// Get the NewRelic App instance from our CLI params
 	app, err := start.NewRelicApp()
+	if err != nil {
+		log.Fatal("Could not create NewRelic app", "err", err)
+		return
+	}
 
 	// NewRelic transaction name is the workflow name and job name
 	txnName := fmt.Sprintf("%s / %s", start.Workflow, start.Job)
 
-	// Create a new ActionMonitor
-	monitor := NewActionMonitor(client, app, txnName)
-	monitor.Start()
+	// Create a FileFlag semaphore to listen for the flag file
+	flag, err := fileflag.NewFileFlag(cli.Flag)
+	if err != nil {
+		log.Fatal("Could not create flag file", "err", err)
+		return
+	}
 
-	// TODO: Annotate the with attributes
-	//   branch (GITHUB_HEAD_REF)
-	//   URL (availble via the API call OR use the `/runs/{run_id}` endpoint)
-	//   run attempt (GITHUB_RUN_NUMBER)
-	//   actor (GITHUB_ACTOR)
-	//   triggering actor (GITHUB_TRIGGERING_ACTOR)
+	// Start watching for file events
+	go flag.Watch()
+	runtime.Gosched()
 
+	// Create the flag file if it doesn't exist
+	err = touchFile(cli.Flag)
+	if err != nil {
+		log.Fatal("Could not create flag file", "err", err)
+		return
+	}
+
+	// Wait for the start flag
+	log.Debug("Waiting for watcher start")
+	flag.WaitForStart()
+
+	// Start a new transaction
+	txn := app.StartTransaction(txnName)
+
+	// Annotate the with attributes
+	txn.AddAttribute("branch", start.Branch)
+	txn.AddAttribute("workflow", start.Workflow)
+	txn.AddAttribute("job", start.Job)
+	txn.AddAttribute("repo", start.Repo)
+	txn.AddAttribute("runner", os.Getenv("RUNNER_NAME"))
+	txn.AddAttribute("actor", os.Getenv("GITHUB_ACTOR"))
+	txn.AddAttribute("triggering_actor", os.Getenv("GITHUB_TRIGGERING_ACTOR"))
+	txn.AddAttribute("run_number", os.Getenv("GITHUB_RUN_NUMBER"))
+	txn.AddAttribute("run_id", os.Getenv("GITHUB_RUN_ID"))
+
+	// URL format
+	// https://github.com/turo/github-actions-scale-set-deployments/actions/runs/6322221331
+	txn.AddAttribute("run_url", fmt.Sprintf("https://github.com/%s/actions/runs/%s", start.Repo, os.Getenv("GITHUB_RUN_ID")))
+
+	// Waiting on our flag to be removed, indicating all the jobs are done
+	log.Info("Waiting...")
+	flag.Wait()
+
+	// Get the Job status
+	status, err := start.GitHubJobStatus()
+	txn.AddAttribute("status", status)
+	if err != nil {
+		log.Warn("Could not get Job status", "err", err)
+	}
+
+	// End the transaction
+	txn.End()
+	flag.Close()
+	log.Info("Done.")
+
+	// Default to 60s timeout sending data to NR
+	log.Debug("Sending data to NewRelic...")
+	app.Shutdown(60 * time.Second)
+
+	return
+}
+
+// structToJSON is a helper for pretty printing structs (mostly used for GH API responses/objects)
+func structToJSON(data interface{}) (out string) {
+	j, _ := json.MarshalIndent(data, "", "  ")
+	out = string(j)
+	return
+}
+
+// touchFile is a helper to create an empty file at the given path for use as a flag file
+func touchFile(path string) (err error) {
+	// Ensure the directory exists
+	err = os.MkdirAll(filepath.Dir(path), 0755)
+	if err != nil {
+		return
+	}
+	// Create the file
+	_, err = os.Stat(path)
+	if err != nil && os.IsNotExist(err) {
+		_, err = os.Create(path)
+	}
 	return
 }
 
 // GitHubClient returns a GitHub client instance ready to use
 func (start *CliStart) GitHubClient() (client *github.Client, err error) {
 	// Parse int appID out of our byte file content
-	appID, err := strconv.ParseInt(string(start.GHAppIDSecret.Contents), 10, 64)
+	appID, err := strconv.ParseInt(strings.TrimSpace(string(start.GHAppIDSecret.Contents)), 10, 64)
 	if err != nil {
 		return
 	}
 
 	// Parse int appInstID out of our byte file content
-	appInstID, err := strconv.ParseInt(string(start.GHAppInstallIDSecret.Contents), 10, 64)
+	appInstID, err := strconv.ParseInt(strings.TrimSpace(string(start.GHAppInstallIDSecret.Contents)), 10, 64)
 	if err != nil {
 		return
 	}
 
 	appKey := start.GHAppPrivateKey
 
-	// Wrap the shared transport for use with the app ID 1 authenticating with installation ID 99.
+	// Wrap the shared transport for use with the app ID 1 authenticating with
+	// installation ID 99.
 	itr, err := ghinstallation.NewKeyFromFile(
 		http.DefaultTransport,
 		appID,
@@ -300,10 +252,110 @@ func (start *CliStart) GitHubClient() (client *github.Client, err error) {
 	return
 }
 
+// GitHubJobStatus returns the status of the current job from the GitHub API if
+// we can find it.
+func (start *CliStart) GitHubJobStatus() (status string, err error) {
+	// Default status to "unknown"
+	status = "unknown"
+
+	// Use the GitHub client to retrieve run information
+	ghRunID := os.Getenv("GITHUB_RUN_ID")
+	if ghRunID == "" {
+		log.Warn("Could not get GITHUB_RUN_ID")
+		return
+	}
+
+	// API client wants a 64-bit int
+	runID, err := strconv.ParseInt(ghRunID, 10, 64)
+	if err != nil {
+		log.Warn("Could not parse GITHUB_RUN_ID", "err", err)
+		// TODO: Figure out if we want this to error harder
+		err = nil
+		return
+	}
+
+	// Split the org and repo name from the repo string, since the API wants
+	// them separate
+	orgName, repoName, found := strings.Cut(start.Repo, "/")
+	if !found {
+		log.Warn("Could not parse GITHUB_REPOSITORY", "repo", start.Repo)
+		return
+	}
+
+	// Runner name is unique with Ephemeral runners, so we can use it to find
+	// our job since we don't have the Job ID in our environment
+	runnerName := os.Getenv("RUNNER_NAME")
+	if runnerName == "" {
+		log.Warn("Could not get RUNNER_NAME")
+		return
+	}
+
+	// Get the GitHub client instance from our CLI params
+	client, err := start.GitHubClient()
+	if err != nil {
+		log.Warn("Could not create GitHub client", "err", err)
+		// TODO: Figure out if we want this to error harder
+		err = nil
+		return
+	}
+
+	// Context for calling the API with a timeout of 30s
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Call the API to get the Jobs associated with the workflow run
+	run, response, err := client.Actions.ListWorkflowJobs(ctx, orgName, repoName, runID, &github.ListWorkflowJobsOptions{Filter: "all"})
+	if err != nil {
+		return
+	}
+
+	// Sanity check
+	if response.Rate.Remaining < 2 {
+		log.Warn("GitHub API rate limit exceeded", "rate", structToJSON(response.Rate))
+	}
+
+	// Iterate through all the jobs looking for our runner name, which
+	// identifies this current run uniquely
+	var job *github.WorkflowJob
+	for _, job = range run.Jobs {
+		if *job.RunnerName == runnerName {
+			break
+		}
+	}
+	if job == nil {
+		log.Warn("Could not find Job matching RUNNER_NAME", "runnerName", runnerName)
+		return
+	}
+
+	// Iterate through all the steps in our job, checking their conclusion
+	status = "success"
+	for _, step := range job.Steps {
+		var conclusion string
+		if step.Conclusion != nil {
+			conclusion = *step.Conclusion
+		} else {
+			conclusion = "unknown"
+		}
+		if conclusion == "failure" {
+			status = "failure"
+			// Break out of the loop, since we consider one failure to be the
+			// entire job failing for now
+			// TODO: Figure out if there's a way to detect a failing step that
+			// isn't failing the whole Job (before the Job status is reported,
+			// which it won't be in this case)
+			break
+		}
+	}
+
+	log.Info("Job status", "status", status)
+	return
+}
+
 // NewRelicApp returns a NewRelic app instance ready to use
 func (start *CliStart) NewRelicApp() (app *newrelic.Application, err error) {
 	// Parse the license key out of our byte file content
-	licenseKey := string(start.NewRelicSecret.Contents)
+	licenseKey := strings.TrimSpace(string(start.NewRelicSecret.Contents))
 	// Application name is the repo name
 	appName := start.Repo
 
@@ -357,22 +409,14 @@ func main() {
 
 	if cli.Debug {
 		log.SetLevel(log.DebugLevel)
-		log.Debug("Debug mode enabled")
+		log.Debug("Debug output enabled")
 	}
 
 	// TODO: Decide if we want to JSON format logs
 	// log.SetFormatter(log.JSONFormatter)
 
-	cli.Main()
-
-	// Debugging
-	if true {
-		return
+	err := cli.Main()
+	if err != nil {
+		log.Fatal("Error", "err", err)
 	}
-
-	// Create a new transaction
-	// TODO: Pass in workflow info/figure out if we want to use a shared struct to pass this around
-	// TODO: Make the file semaphore actually listen for a file to be created and then removed
-	// TODO: Integrate this with SoftLock to just create a full file semaphore option?
-	// Start listening for FS events.
 }

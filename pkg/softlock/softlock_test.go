@@ -2,7 +2,6 @@ package softlock_test
 
 import (
 	"runtime"
-	"sync"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -91,29 +90,25 @@ var _ = Describe("SoftLock", func() {
 	})
 
 	Context("Release", func() {
-		var m sync.Mutex
-
-		BeforeEach(func() {
-			m = sync.Mutex{}
-		})
-
 		It("should release a waiting goroutine", func() {
+			done := make(chan interface{})
 			sl := NewSoftLock()
 			By("starting the lock")
 			sl.Start()
-			m.Lock()
 			go func() {
 				By("release the soft lock")
 				sl.Release()
 				By("unlocking the mutex")
-				m.Unlock()
+				close(done)
 			}()
 			By("checking that we're blocked")
-			Expect(m.TryLock()).To(BeFalse())
+			Expect(done).ToNot(BeClosed())
+
 			By("waiting for the soft lock to be released")
 			sl.Wait()
+
 			By("checking that we're unblocked")
-			Expect(m.TryLock()).To(BeTrue())
+			Eventually(done).Should(BeClosed())
 		})
 
 		It("should do nothing if not started", func() {

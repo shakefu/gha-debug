@@ -1,10 +1,8 @@
 package fileflag_test
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -18,12 +16,15 @@ func TestFileFlag(t *testing.T) {
 	RunSpecs(t, "FileFlag Suite")
 }
 
-func TempPath() (path string, err error) {
+func tmpPath() (path string) {
+	var err error
 	path, err = os.MkdirTemp(os.TempDir(), "gha-debug-*")
+	Expect(err).ToNot(HaveOccurred())
+	path = filepath.Join(path, "fileflag")
 	return
 }
 
-func Touch(path string) (err error) {
+func touch(path string) (err error) {
 	// Ensure the directory exists
 	err = os.MkdirAll(filepath.Dir(path), 0755)
 	if err != nil {
@@ -37,7 +38,7 @@ func Touch(path string) (err error) {
 	return
 }
 
-func Remove(path string) (err error) {
+func remove(path string) (err error) {
 	_, err = os.Stat(path)
 	if err == nil {
 		err = os.Remove(path)
@@ -53,21 +54,19 @@ func Remove(path string) (err error) {
 
 var _ = Describe("FileFlag", func() {
 	// TODO: Use unique name
-	var path string
+	var flagPath string
 
-	BeforeEach(func() {
-		var err error
-		path, err = TempPath()
-		path = filepath.Join(path, "fileflag")
-		Expect(err).ToNot(HaveOccurred())
-	})
-
+	// We have to initalize flagPath within the test context, otherwise there is
+	// a possible race condition, which would require a lock, and we don't want
+	// to put that everywhere
 	AfterEach(func() {
-		err := Remove(path)
+		err := remove(flagPath)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	It("initialize fine", func() {
+		path := tmpPath()
+		flagPath = path
 		ff, err := NewFileFlag(path)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ff).ToNot(BeNil())
@@ -76,55 +75,80 @@ var _ = Describe("FileFlag", func() {
 
 	It("should detect file creation", func() {
 		done := make(chan interface{})
-		watching := make(chan interface{})
-		lock := sync.Mutex{}
+		path := tmpPath()
+		flagPath = path
 
-		ff, err := NewFileFlag(path, &lock)
+		ff, err := NewFileFlag(path)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ff).ToNot(BeNil())
 
-		By("scheduling creation")
 		// Create our file
 		go func() {
 			defer GinkgoRecover()
-			By("waiting for watch to start")
-			Eventually(watching).Should(BeClosed())
-			lock.Lock()
-			By(fmt.Sprintf("creating flag=%s", path))
-			err := Touch(path)
-			By("created")
-			lock.Unlock()
+			ff.WaitForWatch()
+			err := touch(path)
 			Expect(err).ToNot(HaveOccurred())
 		}()
 
-		By("scheduling removal")
 		// Wait for the file to be created, then remove it
 		go func() {
 			defer GinkgoRecover()
-			By("waiting for start")
 			ff.WaitForStart()
-			By("started")
-			By("removing flag")
-			err := Remove(path)
-			By("removed")
+			err := remove(path)
 			Expect(err).ToNot(HaveOccurred())
 		}()
 
-		By("scheduling watch")
 		// Watch for state changes
 		go func() {
 			defer GinkgoRecover()
-			By("closing watching channel")
-			close(watching)
-			By("watching")
 			ff.Watch()
-			By("closing done")
+		}()
+
+		// Wait for the flag to be closed
+		go func() {
+			defer GinkgoRecover()
+			ff.Wait()
 			close(done)
 		}()
 
-		By("waiting for done")
 		Eventually(done, 5).Should(BeClosed())
-		By("closing FileFlag")
+		ff.Close()
+	})
+
+	It("should work if the flag file already exists", func() {
+		done := make(chan interface{})
+		path := tmpPath()
+		flagPath = path
+
+		err := touch(path)
+		Expect(err).ToNot(HaveOccurred())
+
+		ff, err := NewFileFlag(path)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(ff).ToNot(BeNil())
+
+		// Wait for the flag to be started then remove it
+		go func() {
+			defer GinkgoRecover()
+			ff.WaitForStart()
+			err := remove(path)
+			Expect(err).ToNot(HaveOccurred())
+		}()
+
+		// Watch for state changes
+		go func() {
+			defer GinkgoRecover()
+			ff.Watch()
+		}()
+
+		// Wait for the flag to be closed
+		go func() {
+			defer GinkgoRecover()
+			ff.Wait()
+			close(done)
+		}()
+
+		Eventually(done, 5).Should(BeClosed())
 		ff.Close()
 	})
 })

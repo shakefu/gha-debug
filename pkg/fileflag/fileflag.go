@@ -5,40 +5,22 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
-	_log "github.com/charmbracelet/log"
+	"github.com/charmbracelet/log"
 	"github.com/fsnotify/fsnotify"
 	"github.com/shakefu/gha-debug/pkg/softlock"
 )
-
-func nullLog(msg interface{}, keyvals ...interface{}) {}
-
-var log = _log.NewWithOptions(os.Stderr, _log.Options{Prefix: "FileFlag"})
-var silly = nullLog
-
-func init() {
-	if os.Getenv("DEBUG") != "" {
-		log.SetLevel(_log.DebugLevel)
-	}
-	if os.Getenv("SILLY") != "" {
-		log.SetLevel(_log.DebugLevel)
-		silly = log.Debug
-	}
-}
 
 type FileFlag struct {
 	filename string
 	lock     *softlock.SoftLock
 	watcher  *fsnotify.Watcher
-	m        *sync.Mutex
+	watching chan struct{}
 }
 
 // NewFileFlag creates a new FileFlag.
-func NewFileFlag(filename string, m ...*sync.Mutex) (ff *FileFlag, err error) {
-	silly("Creating new FileFlag", "filename", filename)
-
+func NewFileFlag(filename string) (ff *FileFlag, err error) {
 	// Create our watcher first
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -59,6 +41,7 @@ func NewFileFlag(filename string, m ...*sync.Mutex) (ff *FileFlag, err error) {
 		filename: filename,
 		lock:     softlock.NewSoftLock(),
 		watcher:  watcher,
+		watching: make(chan struct{}),
 	}
 
 	return
@@ -69,25 +52,29 @@ func (ff *FileFlag) Watch() {
 	// If the file exists, start the lock
 	if _, err := os.Stat(ff.filename); errors.Is(err, os.ErrNotExist) {
 		// Doesn't exist, we're good
-		silly("Flag does not exist")
 	} else if err != nil {
 		// Something else happened
 		log.Error("Error", "err", err)
 		return
 	} else {
-		silly("Flag exists, starting")
 		// It exists, start the lock
 		ff.lock.Start()
 	}
 
-	silly("Watching", "filename", ff.filename)
+	// Signal that we've started watching for the file flag
+	select {
+	case <-ff.watching:
+		// Already started, do nothing
+	default:
+		// Close our semaphore channel
+		close(ff.watching)
+	}
+
 	for {
-		silly("Waiting for events")
 		// Explicit yield to the scheduler, so we don't hang?
 		// runtime.Gosched()
 		select {
 		case event, ok := <-ff.watcher.Events:
-			silly("Got", "ok", ok, "event", event)
 			// If there's nothing on the channel, keep going
 			if !ok {
 				return
@@ -100,17 +87,13 @@ func (ff *FileFlag) Watch() {
 
 			// If the event is our file being created, start the lock
 			if event.Has(fsnotify.Create) {
-				silly("Flag created")
 				ff.lock.Start()
-				silly("Lock started")
 				continue
 			}
 
 			// If the event is our file being removed, release the lock
 			if event.Has(fsnotify.Remove) {
-				silly("Flag removed")
 				ff.lock.Release()
-				silly("Lock released")
 				return
 			}
 		case err, ok := <-ff.watcher.Errors:
@@ -121,28 +104,28 @@ func (ff *FileFlag) Watch() {
 			defer ff.Close()
 			log.Fatal("Error", "err", err)
 		case <-time.After(200 * time.Millisecond):
-			// This timeout clause is because it seems like fsnotify can
-			// drop/lose events, so we need to manually check our lock state
-			// otherwise it hangs indefinitely
-			log.Warn("Timeout")
+			// This timeout implements a pollling behavior (yuck), with a 200ms
+			// interval as a back-up for the watcher. If there's a long running
+			// task, this will be harmlessly invoked manually checking the file,
+			// which won't exist
+			//
+			// This can also happen if the file is created while we're setting
+			// up the watcher - the file creation event will be lost, and the
+			// lock will never be started. This is a workaround for that.
+			if !ff.lock.Started() {
+				log.Warn("FileFlag timeout, use FileFlag.WaitForWatch()", "filename", ff.filename)
+			}
 			// We've been hanging out in this too long, let's check our lock manually
 			_, err := os.Stat(ff.filename)
-			silly("Checking flag")
 			if err == nil {
 				// File exists, start the lock
-				silly("Flag exists")
 				ff.lock.Start()
-				silly("Lock started")
 				continue
 			} else if os.IsNotExist(err) {
 				// File does not exist, release the lock, if it was already started
-				silly("Flag does not exist")
 				if ff.lock.Started() {
 					ff.lock.Release()
-					silly("Lock released")
 					return
-				} else {
-					silly("Lock not started")
 				}
 			} else {
 				// Some other error, log it and bail
@@ -156,6 +139,7 @@ func (ff *FileFlag) Watch() {
 // WaitForStart blocks until the flag exists. If it already exists, it is a
 // passthrough.
 func (ff *FileFlag) WaitForStart() {
+	ff.WaitForWatch()
 	if ff.lock.Started() {
 		return
 	}
@@ -165,7 +149,18 @@ func (ff *FileFlag) WaitForStart() {
 // Wait blocks until the flag has been removed. If the flag is already removed,
 // it is a passthrough.
 func (ff *FileFlag) Wait() {
+	ff.WaitForStart()
 	ff.lock.Wait()
+}
+
+// WaitForWatch blocks until the flag has been watched.
+func (ff *FileFlag) WaitForWatch() {
+	select {
+	case <-ff.watching:
+		// Already watching, do nothing
+	default:
+		<-ff.watching
+	}
 }
 
 // WaitForDone blocks until the flag has completely been resolved.
@@ -178,6 +173,13 @@ func (ff *FileFlag) WaitForDone() {
 func (ff *FileFlag) Close() {
 	if ff == nil {
 		return
+	}
+	// We wait for watching
+	select {
+	case <-ff.watching:
+		// Already closed, do nothing
+	default:
+		defer close(ff.watching)
 	}
 	defer ff.watcher.Close()
 	defer ff.lock.Close()

@@ -14,10 +14,10 @@ type SoftLock struct {
 	// which softens the lock further allowing Wait() passthrough without yielding
 	// the running goroutine
 
-	started chan struct{} // started gives an explicit signal for try-once semantics
-	wait    chan struct{} // wait is the main lock
-	done    chan struct{} // done is the signal that we're finished, and can exit
-	m       sync.Mutex    // m protects the channels from concurrent access
+	started chan interface{} // started gives an explicit signal for try-once semantics
+	wait    chan interface{} // wait is the main lock
+	done    chan interface{} // done is the signal that we're finished, and can exit
+	m       sync.Mutex       // m protects the channels from concurrent access
 }
 
 func (l *SoftLock) String() string {
@@ -28,9 +28,9 @@ func (l *SoftLock) String() string {
 func NewSoftLock() *SoftLock {
 	return &SoftLock{
 		_started: false,
-		started:  make(chan struct{}),
-		wait:     make(chan struct{}),
-		done:     make(chan struct{}),
+		started:  make(chan interface{}),
+		wait:     make(chan interface{}),
+		done:     make(chan interface{}),
 	}
 }
 
