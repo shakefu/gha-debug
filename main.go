@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -15,135 +14,9 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/google/go-github/v55/github"
 	"github.com/newrelic/go-agent/v3/newrelic"
+
+	. "github.com/shakefu/gha-debug/pkg/softlock"
 )
-
-// SoftLock implements an idepotent two stage locking mechanism based on
-// channels to allow for asynchronous triggering of waiting goroutines.
-// Once it has been used, it cannot be reused.
-type SoftLock struct {
-	started chan struct{} // started gives an explicit signal for try-once semantics
-	wait    chan struct{} // wait is the main lock
-	done    chan struct{} // done is the signal that we're finished, and can exit
-	m       sync.Mutex    // m protects the channels from concurrent access
-}
-
-// NewSoftLock creates a new SoftLock instance.
-func NewSoftLock() *SoftLock {
-	return &SoftLock{
-		started: make(chan struct{}, 1),
-		wait:    make(chan struct{}, 1),
-		done:    make(chan struct{}, 1),
-	}
-}
-
-// Start the lock and return true if we started, false if we were already
-// started.
-func (l *SoftLock) Start() bool {
-	l.m.Lock()
-	defer l.m.Unlock()
-	select {
-	case <-l.started:
-		// Already started, do nothing
-		return false
-	default:
-		// Close our semaphore channel
-		close(l.started)
-		// Launch the transaction async
-		return true
-	}
-}
-
-// Started returns whether or not we've started our transaction.
-func (l *SoftLock) Started() bool {
-	select {
-	case <-l.started:
-		// Already started, do nothing
-		return true
-	default:
-		// Close our semaphore channel
-		return false
-	}
-}
-
-// Release the soft lock allowing waiting goroutines to continue.
-func (l *SoftLock) Release() {
-	l.m.Lock()
-	defer l.m.Unlock()
-	select {
-	case <-l.started:
-		// We've started, try to release the wait
-		select {
-		case <-l.wait:
-			// Already released, do nothing
-		default:
-			// Close our wait signal
-			close(l.wait)
-		}
-	default:
-		// Not started, do nothing
-	}
-}
-
-// Released returns true if the main wait lock has been released
-func (l *SoftLock) Released() bool {
-	select {
-	case <-l.wait:
-		// Already released
-		return true
-	default:
-		// Not released
-		return false
-	}
-}
-
-// Wait for the soft lock to be released.
-func (l *SoftLock) Wait() {
-	// TODO: Decide if this should be a passthrough if the lock was not started
-	select {
-	case <-l.wait:
-		// Already released, do nothing
-	default:
-		// Wait for the release
-		<-l.wait
-	}
-}
-
-// Done indicates all the soft lock work is finished, and we can exit.
-func (l *SoftLock) Done() {
-	l.m.Lock()
-	defer l.m.Unlock()
-	select {
-	case <-l.done:
-		// Already done, do nothing
-	default:
-		// Close our done signal
-		close(l.done)
-	}
-}
-
-// Finished returns true if the lock is finished
-func (l *SoftLock) Finished() bool {
-	select {
-	case <-l.done:
-		// Already done
-		return true
-	default:
-		// Not done
-		return false
-	}
-}
-
-// Close forces the soft lock to be done, and we can exit.
-func (l *SoftLock) Close() {
-	l.Start()
-	l.Release()
-	l.Done()
-}
-
-// WaitForDone waits for the soft lock to completely finish its lifecycle.
-func (l *SoftLock) WaitForDone() {
-	<-l.done
-}
 
 // AppTransaction represents a single transaction to be monitored by NewRelic
 type AppTransaction struct {
@@ -259,6 +132,21 @@ func (t *AppTransaction) Cleanup() {
 	t.app.Shutdown(60 * time.Second)
 }
 
+type ActionMonitor struct {
+}
+
+func NewActionMonitor(client *github.Client, app *newrelic.Application, txnName string) (monitor *ActionMonitor) {
+	return
+}
+
+func (monitor *ActionMonitor) Start() {
+	// Do nothing?
+}
+
+/*
+ * Main CLI
+ */
+
 // Cli declares our Kong CLI options so we can extend the type with a few helper functions
 type Cli struct {
 	Debug bool `short:"d" help:"Debug mode."`
@@ -301,8 +189,22 @@ func (cli *Cli) Run() (err error) {
 }
 */
 
+/*
+ * Start subcommand
+ *
+ * This will start the process and open a new transaction in NewRelic. It will
+ * also optionally create the flag file if it doesn't exist. It will attempt to
+ * read the information given by the GitHub Actions Runner process to determine
+ * the repository, workflow name, job ID, and branch name.
+ *
+ * When the flag file is removed, it will send the collected data to NewRelic
+ * and exit.
+ */
+
 // CliStart is the 'start' subcommand
 type CliStart struct {
+	// TODO: Optional flag for creating the flag file if it doesn't exist?
+
 	// GitHub Job context variables (supplied by runner process)
 	Repo     string `short:"r" type:"string" required:"" env:"GITHUB_REPOSITORY" placeholder:"REPOSITORY" help:"GitHub repository."`
 	Workflow string `short:"w" type:"string" required:"" env:"GITHUB_WORKFLOW" placeholder:"WORKFLOW" help:"GitHub workflow."`
@@ -413,6 +315,13 @@ func (start *CliStart) NewRelicApp() (app *newrelic.Application, err error) {
 	return
 }
 
+/*
+ * Stop subcommand
+ *
+ * This command just removes the flag file, which will cause the process which
+ * is listening for it to send its data to NewRelic and exit.
+ */
+
 // CliStop is the 'stop' subcommand
 type CliStop struct{}
 
@@ -428,9 +337,11 @@ func (stop *CliStop) Run(cli *Cli) (err error) {
 	log.Info("Stopping transaction...")
 	filename := cli.Flag
 	// Check if the path at cli.Flag exists and remove it if it does
-	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
+	if _, err = os.Stat(filename); errors.Is(err, os.ErrNotExist) {
 		// file does not exist
 		log.Debug("Flag file does not exist, nothing happened")
+	} else if err != nil {
+		log.Error("Error", "err", err)
 	} else {
 		// file exists
 		log.Debug("Flag file exists, cleaning", "filename", filename)
@@ -449,6 +360,9 @@ func main() {
 		log.Debug("Debug mode enabled")
 	}
 
+	// TODO: Decide if we want to JSON format logs
+	// log.SetFormatter(log.JSONFormatter)
+
 	cli.Main()
 
 	// Debugging
@@ -456,148 +370,9 @@ func main() {
 		return
 	}
 
-	/*
-		// cli holds Kong CLI options at runtime
-		var cli Cli
-
-		// ctx := kong.Parse(&cli,
-		_ = kong.Parse(&cli,
-			kong.Name("gha-debug"),
-			kong.Description("A GitHub Actions debug tool."),
-			kong.UsageOnError(),
-			kong.ConfigureHelp(kong.HelpOptions{
-				Compact: true,
-				Summary: true,
-			}))
-	*/
-
-	// TODO: Decide if we want to JSON format logs
-	// log.SetFormatter(log.JSONFormatter)
-
-	/*
-		// Configure the logger for debug output
-		if cli.Debug {
-			log.SetLevel(log.DebugLevel)
-			log.Debug("Debug mode enabled")
-		}
-
-		// What files are we watching?
-		log.Debug("Args", "--start-file", cli.StartFile, "--end-file", cli.EndFile)
-
-		// Check for files and optionally clean them
-		CheckOrClean(cli.StartFile, cli.Clean)
-		CheckOrClean(cli.EndFile, cli.Clean)
-
-		// TODO: Remvoe this
-		// Handle debug testing
-		if true {
-			return
-		}
-
-		// Create new watcher.
-		watcher, err := fsnotify.NewWatcher()
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer watcher.Close()
-
-		// Our lock for the transaction
-		lock := NewSoftLock()
-
-		// Create a new transaction
-		// TODO: Pass in workflow info/figure out if we want to use a shared struct to pass this around
-		transaction := NewTransaction(cli.Repo, cli.NewRelicLicenseKey(), lock, cli.StartFile, cli.EndFile)
-
-		// TODO: Make the file semaphore actually listen for a file to be created and then removed
-		// TODO: Integrate this with SoftLock to just create a full file semaphore option?
-		// Start listening for FS events.
-		go func() {
-			for {
-				select {
-				case event, ok := <-watcher.Events:
-					if !ok {
-						return
-					}
-					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
-						// We only care about create and write events to these files
-						continue
-					}
-
-					log.Debug("Event", "path", event.Name)
-
-					// Handle StartFile modification
-					if event.Name == cli.StartFile {
-						log.Debug("Start file modified")
-						// Idempotently launch the transaction
-						if lock.Start() {
-							go transaction.Monitor()
-						}
-						// Wait for more events
-						continue
-					}
-
-					// Handle EndFile modification
-					if event.Name == cli.EndFile {
-						log.Debug("End file modified")
-
-						if !lock.Started() {
-							log.Fatal("Action not started")
-							continue
-						}
-
-						log.Debug("Action started, closing")
-						lock.Release()
-						return
-					}
-				case err, ok := <-watcher.Errors:
-					if !ok {
-						return
-					}
-					log.Error("Error", "err", err)
-				}
-			}
-		}()
-
-		// Get our start/end direectories so we can watch for creation of new files
-		// (can't watch a file that doesn't exist)
-		startPath := filepath.Dir(cli.StartFile)
-		endPath := filepath.Dir(cli.EndFile)
-
-		// Add the directories that we're watching for our start/end file flags.
-		err = watcher.Add(startPath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if endPath != startPath {
-			// Can only add a path once
-			err = watcher.Add(endPath)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-
-		// Wait for notification that we're done - the EndFile was modified.
-		lock.WaitForDone()
-		log.Debug("Done")
-	*/
-}
-
-// CheckOrClean checks for the existence of the start/end files, and optionally
-// cleans them up if they exist
-func CheckOrClean(filename string, clean bool) {
-	// Check for files and optionally clean them
-	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
-		// file does not exist
-		log.Debug("Flag file does not exist, this is okay")
-	} else {
-		// file exists
-		if !clean {
-			log.Fatal("Flag file exists, this is bad", "filename", filename)
-		}
-		log.Debug("Flag file exists, cleaning", "filename", filename)
-		err = os.Remove(filename)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
+	// Create a new transaction
+	// TODO: Pass in workflow info/figure out if we want to use a shared struct to pass this around
+	// TODO: Make the file semaphore actually listen for a file to be created and then removed
+	// TODO: Integrate this with SoftLock to just create a full file semaphore option?
+	// Start listening for FS events.
 }
