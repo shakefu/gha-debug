@@ -92,10 +92,12 @@ type CliStart struct {
 	Branch   string `short:"b" type:"string" required:"" env:"GITHUB_HEAD_REF" placeholder:"BRANCH" help:"GitHub branch."`
 
 	// Required secrets for talking to GH and NR Apis
-	NewRelicSecret       kong.NamedFileContentFlag `short:"n" type:"namedfilecontent" default:"./new_relic_license_key" help:"Path to New Relic License Key secret."`
-	GHAppIDSecret        kong.NamedFileContentFlag `short:"a" type:"namedfilecontent" default:"./github_app_id" help:"Path to GitHub App ID secret."`
-	GHAppInstallIDSecret kong.NamedFileContentFlag `short:"i" type:"namedfilecontent" default:"./github_app_installation_id" help:"Path to GitHub App Installation ID secret."`
-	GHAppPrivateKey      string                    `short:"k" type:"existingfile" default:"./github_app_private_key" help:"Path to GitHub App Private Key secret."`
+	// TODO: There's a bug where if these have defaults they try to read the file, even if this command is not being used...
+	// Need to file an issue about that and get it fixed
+	NewRelicSecret       kong.NamedFileContentFlag `short:"n" type:"namedfilecontent" help:"Path to New Relic License Key secret."`
+	GHAppIDSecret        kong.NamedFileContentFlag `short:"a" type:"namedfilecontent" help:"Path to GitHub App ID secret."`
+	GHAppInstallIDSecret kong.NamedFileContentFlag `short:"i" type:"namedfilecontent" help:"Path to GitHub App Installation ID secret."`
+	GHAppPrivateKey      string                    `short:"k" type:"existingfile" help:"Path to GitHub App Private Key secret."`
 }
 
 // Help returns the help text for the "start" command
