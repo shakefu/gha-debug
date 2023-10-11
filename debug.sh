@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 
 echo
-echo "debug.sh v2.0.0"
+echo "debug.sh v2.1.0"
 echo
 
 function gha_debug {
