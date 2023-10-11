@@ -1,10 +1,11 @@
+*.test
+.vscode
 build/
-tmp/
+coverprofile.out
 gha-debug.flag
-new_relic_license_key
+gha-debug.sh
 github_app_id
 github_app_installation_id
 github_app_private_key
-.vscode
-coverprofile.out
-*.test
+new_relic_license_key
+tmp/
