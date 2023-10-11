@@ -31,7 +31,7 @@ function gha_debug {
         sleep 1
         # Check our log output
         echo "Log output:"
-        ls -lah /tmo
+        ls -lah /tmp
         cat /tmp/gha-debug.log
         echo "Done!"
     fi
