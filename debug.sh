@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 
 echo
-echo "debug.sh v2.1.0"
+echo "debug.sh v2.2.0"
 echo
 
 function gha_debug {
@@ -30,7 +30,7 @@ function gha_debug {
         # Wait 1 second for startup
         sleep 1
         # Check our log output
-        echo "Log output:"
+        echo "Logged output:"
         ls -lah /tmp
         cat /tmp/gha-debug.log
         echo "Done!"
@@ -43,7 +43,8 @@ function gha_debug {
             --flag /tmp/gha-debug.flag \
             --debug
 
-        sleep 5
+        # Wait for the process to exit
+        sleep 1
         for i in $(seq 1 60)
         do
             echo "$i: Waiting for gha-debug to stop..."
@@ -52,8 +53,7 @@ function gha_debug {
         done
 
         # Check our log output
-        echo "Log output:"
-        ls -lah /tmp
+        echo "Logged output:"
         cat /tmp/gha-debug.log
         echo "Done!"
     fi
