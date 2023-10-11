@@ -30,7 +30,10 @@ function gha_debug {
         # Wait 1 second for startup
         sleep 1
         # Check our log output
+        echo "Log output:"
+        ls -lah /tmo
         cat /tmp/gha-debug.log
+        echo "Done!"
     fi
 
     # Sleep to allow for debug checking via the API
@@ -40,7 +43,10 @@ function gha_debug {
             --flag /tmp/gha-debug.flag \
             --debug
         # Check our log output
+        echo "Log output:"
+        ls -lah /tmo
         cat /tmp/gha-debug.log
+        echo "Done!"
     fi
 }
 export -f gha_debug
