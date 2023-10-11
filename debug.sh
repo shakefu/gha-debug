@@ -42,6 +42,15 @@ function gha_debug {
         gha-debug stop \
             --flag /tmp/gha-debug.flag \
             --debug
+
+        sleep 5
+        for i in $(seq 1 60)
+        do
+            echo "$i: Waiting for gha-debug to stop..."
+            sleep 1
+            pgrep gha-debug || break
+        done
+
         # Check our log output
         echo "Log output:"
         ls -lah /tmp
