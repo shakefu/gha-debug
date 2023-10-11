@@ -199,6 +199,8 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 	log.Debug("Sending data to NewRelic...")
 	app.Shutdown(60 * time.Second)
 
+	log.Debug("Shutdown complete.")
+
 	return
 }
 
@@ -320,8 +322,9 @@ func (start *CliStart) GitHubJobStatus() (status string, err error) {
 	// Iterate through all the jobs looking for our runner name, which
 	// identifies this current run uniquely
 	var job *github.WorkflowJob
-	for _, job = range run.Jobs {
-		if *job.RunnerName == runnerName {
+	for _, item := range run.Jobs {
+		if *item.RunnerName == runnerName {
+			job = item
 			break
 		}
 	}
