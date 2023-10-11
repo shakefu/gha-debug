@@ -26,7 +26,7 @@ function gha_debug {
             --gh-app-id-secret /run/secrets/gha-app/github_app_id \
             --gh-app-install-id-secret /run/secrets/gha-app/github_app_installation_id \
             --gh-app-private-key /run/secrets/gha-app/github_app_private_key \
-            --debug > /tmp/gha-debug.log &
+            --debug &> /tmp/gha-debug.log &
         # Wait 1 second for startup
         sleep 1
         # Check our log output
