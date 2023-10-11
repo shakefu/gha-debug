@@ -19,11 +19,12 @@ RUN go build -v -o /build/ ./...
 # Runner image
 FROM ghcr.io/actions/actions-runner:latest
 
-ENV DEBIAN_FRONTEND=noninteractive
 
 USER root
 # TODO: Some of these dependencies are probably better installed via Homebrew,
 # but Homebrew Linux is fussy at best...
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Dependencies that definitely should be in here... not sure why they're missing
 RUN apt-get update -yqq && apt-get install -yqq \
@@ -53,12 +54,12 @@ RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | gpg --d
     echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /' > /etc/apt/sources.list.d/kubernetes.list
 
 # Docker apt repository
-RUN	curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - 2>/dev/null && \
-    echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
+RUN	curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker-apt-keyring.gpg  && \
+    echo "deb [signed-by=/etc/apt/keyrings/docker-apt-keyring.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
 
 # Terraform apt repository
-RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /etc/apt/keyrings/hashicorp-archive-keyring.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com jammy main" > /etc/apt/sources.list.d/hashicorp.list
+RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /etc/apt/keyrings/hashicorp-apt-keyring.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/hashicorp-apt-keyring.gpg] https://apt.releases.hashicorp.com jammy main" > /etc/apt/sources.list.d/hashicorp.list
 
 # 3rd party apt repositories installs
 RUN apt-get update -yqq && apt-get install -yqq \
@@ -68,7 +69,7 @@ RUN apt-get update -yqq && apt-get install -yqq \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-apt installs
-RUN bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) && \
+RUN bash -c 'bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)' && \
     mv actionlint /usr/local/bin/actionlint && \
     chmod 755 /usr/local/bin/actionlint
 

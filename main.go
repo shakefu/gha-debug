@@ -368,6 +368,9 @@ func (start *CliStart) NewRelicApp() (app *newrelic.Application, err error) {
 	app, err = newrelic.NewApplication(
 		newrelic.ConfigLicense(licenseKey),
 		newrelic.ConfigAppName(appName),
+		newrelic.ConfigDebugLogger(os.Stdout),
+		newrelic.ConfigInfoLogger(os.Stdout),
+		newrelic.ConfigDistributedTracerEnabled(true),
 	)
 	return
 }
