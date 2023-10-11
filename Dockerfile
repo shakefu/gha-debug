@@ -7,9 +7,14 @@ WORKDIR /usr/src/app
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
-COPY main.go main.go
+# Copy in the main CLI
+COPY *.go ./
+# Copy in our support packages
+COPY pkg ./pkg/
+
+# Make our build directory and build the CLI
 RUN mkdir -p /build
-RUN go build -v -o /build ./...
+RUN go build -v -o /build/ ./...
 
 # Runner image
 FROM ghcr.io/actions/actions-runner:latest
