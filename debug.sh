@@ -44,7 +44,7 @@ function gha_debug {
             --debug
         # Check our log output
         echo "Log output:"
-        ls -lah /tmo
+        ls -lah /tmp
         cat /tmp/gha-debug.log
         echo "Done!"
     fi
