@@ -24,6 +24,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 USER root
 RUN apt-get update -yqq && apt-get install -yqq \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 USER runner
