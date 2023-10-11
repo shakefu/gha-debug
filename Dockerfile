@@ -22,9 +22,17 @@ FROM ghcr.io/actions/actions-runner:latest
 ENV DEBIAN_FRONTEND=noninteractive
 
 USER root
+# Dependencies that definitely should be in here... not sure why they're missing
 RUN apt-get update -yqq && apt-get install -yqq \
     curl \
     git \
+    wget \
+    shellcheck \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencies that CI uses
+RUN apt-get update -yqq && apt-get install -yqq \
+    shellcheck \
     && rm -rf /var/lib/apt/lists/*
 
 USER runner
