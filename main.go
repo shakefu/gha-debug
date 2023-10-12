@@ -18,7 +18,9 @@ import (
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/charmbracelet/log"
 	"github.com/google/go-github/v55/github"
+	"github.com/newrelic/go-agent/v3/integrations/nrlogrus"
 	"github.com/newrelic/go-agent/v3/newrelic"
+	"github.com/sirupsen/logrus"
 
 	"github.com/shakefu/gha-debug/pkg/fileflag"
 )
@@ -390,6 +392,10 @@ func (start *CliStart) NewRelicApp() (app *newrelic.Application, err error) {
 		newrelic.ConfigDebugLogger(os.Stdout),
 		newrelic.ConfigInfoLogger(os.Stdout),
 		// newrelic.ConfigDistributedTracerEnabled(true),
+		func(config *newrelic.Config) {
+			logrus.SetLevel(logrus.DebugLevel)
+			config.Logger = nrlogrus.StandardLogger()
+		},
 	)
 	return
 }
