@@ -137,6 +137,11 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 		log.Fatal("Could not create NewRelic app", "err", err)
 		return
 	}
+	err = app.WaitForConnection(30 * time.Second)
+	if err != nil {
+		log.Warn("Could not connect to NewRelic app, nothing will be recorded", "err", err)
+		return
+	}
 
 	// Create a FileFlag semaphore to listen for the flag file
 	flag, err := fileflag.NewFileFlag(cli.Flag)

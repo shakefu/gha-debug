@@ -5,6 +5,8 @@ go 1.20
 require (
 	github.com/alecthomas/kong v0.8.0
 	github.com/charmbracelet/log v0.2.4
+	github.com/newrelic/go-agent/v3/integrations/nrlogrus v1.0.1
+	github.com/sirupsen/logrus v1.9.3
 )
 
 require (
