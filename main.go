@@ -180,10 +180,13 @@ func (start *CliStart) transaction(app *newrelic.Application, flag *fileflag.Fil
 	txn := app.StartTransaction(name)
 	// TODO: Figure out if this is necessary
 	// Force a segment within the transaction
-	defer txn.StartSegment(start.Job).End()
+	seg := txn.StartSegment(start.Job)
 
 	// End the transaction when this function exits
-	defer txn.End()
+	// defer txn.End()
+	// TODO: Remove this
+	time.Sleep(5 * time.Second)
+	txn.End()
 
 	if txn.Name() == "" {
 		log.Warn("No name set on Transaction instance, implying it is misconfigured")
@@ -205,7 +208,7 @@ func (start *CliStart) transaction(app *newrelic.Application, flag *fileflag.Fil
 	txn.AddAttribute("run_url", fmt.Sprintf("https://github.com/%s/actions/runs/%s", start.Repo, os.Getenv("GITHUB_RUN_ID")))
 
 	// Waiting on our flag to be removed, indicating all the jobs are done
-	log.Info("Waiting for flag to be cleared...")
+	log.Info("Waiting for action to complete...")
 	flag.Wait()
 
 	// Get the Job status
@@ -216,6 +219,7 @@ func (start *CliStart) transaction(app *newrelic.Application, flag *fileflag.Fil
 	}
 
 	flag.Close()
+	seg.End()
 	log.Info("Transaction ended.")
 }
 
