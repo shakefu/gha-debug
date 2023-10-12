@@ -33,7 +33,6 @@ function gha_debug {
         echo "Logged output:"
         ls -lah /tmp
         cat /tmp/gha-debug.log
-        echo "Done!"
     fi
 
     # Sleep to allow for debug checking via the API
@@ -55,7 +54,7 @@ function gha_debug {
         # Check our log output
         echo "Logged output:"
         cat /tmp/gha-debug.log
-        echo "Done!"
     fi
+    echo "End debug.sh"
 }
 export -f gha_debug

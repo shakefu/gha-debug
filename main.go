@@ -136,9 +136,6 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 		return
 	}
 
-	// NewRelic transaction name is the workflow name and job name
-	txnName := fmt.Sprintf("%s / %s", start.Workflow, start.Job)
-
 	// Create a FileFlag semaphore to listen for the flag file
 	flag, err := fileflag.NewFileFlag(cli.Flag)
 	if err != nil {
@@ -161,8 +158,36 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 	log.Debug("Waiting for watcher start")
 	flag.WaitForStart()
 
+	// Transaction timing
+	start.transaction(app, flag)
+
+	// Default to 60s timeout sending data to NR
+	log.Debug("Sending data to NewRelic...")
+	app.Shutdown(60 * time.Second)
+
+	log.Debug("Shutdown complete.")
+	flag.WaitForDone()
+
+	log.Debug("All done.")
+	return
+}
+
+func (start *CliStart) transaction(app *newrelic.Application, flag *fileflag.FileFlag) {
+	// NewRelic transaction name is the workflow name and job name
+	name := fmt.Sprintf("%s / %s", start.Workflow, start.Job)
+
 	// Start a new transaction
-	txn := app.StartTransaction(txnName)
+	txn := app.StartTransaction(name)
+	// TODO: Figure out if this is necessary
+	// Force a segment within the transaction
+	defer txn.StartSegment(start.Job).End()
+
+	// End the transaction when this function exits
+	defer txn.End()
+
+	if txn.Name() == "" {
+		log.Warn("No name set on Transaction instance, implying it is misconfigured")
+	}
 
 	// Annotate the with attributes
 	txn.AddAttribute("branch", start.Branch)
@@ -180,7 +205,7 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 	txn.AddAttribute("run_url", fmt.Sprintf("https://github.com/%s/actions/runs/%s", start.Repo, os.Getenv("GITHUB_RUN_ID")))
 
 	// Waiting on our flag to be removed, indicating all the jobs are done
-	log.Info("Waiting...")
+	log.Info("Waiting for flag to be cleared...")
 	flag.Wait()
 
 	// Get the Job status
@@ -190,18 +215,8 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 		log.Warn("Could not get Job status", "err", err)
 	}
 
-	// End the transaction
-	txn.End()
 	flag.Close()
-	log.Info("Done.")
-
-	// Default to 60s timeout sending data to NR
-	log.Debug("Sending data to NewRelic...")
-	app.Shutdown(60 * time.Second)
-
-	log.Debug("Shutdown complete.")
-
-	return
+	log.Info("Transaction ended.")
 }
 
 // structToJSON is a helper for pretty printing structs (mostly used for GH API responses/objects)
@@ -362,7 +377,7 @@ func (start *CliStart) NewRelicApp() (app *newrelic.Application, err error) {
 	// Parse the license key out of our byte file content
 	licenseKey := strings.TrimSpace(string(start.NewRelicSecret.Contents))
 	// Application name is the repo name
-	appName := start.Repo
+	appName := strings.TrimSpace(start.Repo)
 
 	// Create the NR Application for this transaction
 	app, err = newrelic.NewApplication(
@@ -370,7 +385,7 @@ func (start *CliStart) NewRelicApp() (app *newrelic.Application, err error) {
 		newrelic.ConfigAppName(appName),
 		newrelic.ConfigDebugLogger(os.Stdout),
 		newrelic.ConfigInfoLogger(os.Stdout),
-		newrelic.ConfigDistributedTracerEnabled(true),
+		// newrelic.ConfigDistributedTracerEnabled(true),
 	)
 	return
 }
