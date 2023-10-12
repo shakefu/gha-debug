@@ -191,6 +191,7 @@ func (start *CliStart) transaction(app *newrelic.Application, flag *fileflag.Fil
 	if txn.Name() == "" {
 		log.Warn("No name set on Transaction instance, implying it is misconfigured")
 	}
+	log.Debug("Transaction started", "name", txn.Name())
 
 	// Annotate the with attributes
 	txn.AddAttribute("branch", start.Branch)
