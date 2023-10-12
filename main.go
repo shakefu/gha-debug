@@ -132,16 +132,19 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 	**/
 
 	// Get the NewRelic App instance from our CLI params
+	log.Debug("Creating NewRelic app...")
 	app, err := start.NewRelicApp()
 	if err != nil {
 		log.Fatal("Could not create NewRelic app", "err", err)
 		return
 	}
+	log.Debug("Waiting for NewRelic app to connect...")
 	err = app.WaitForConnection(30 * time.Second)
 	if err != nil {
 		log.Warn("Could not connect to NewRelic app, nothing will be recorded", "err", err)
 		return
 	}
+	log.Debug("Application connected!")
 
 	// Create a FileFlag semaphore to listen for the flag file
 	flag, err := fileflag.NewFileFlag(cli.Flag)
@@ -188,10 +191,6 @@ func (start *CliStart) transaction(app *newrelic.Application, flag *fileflag.Fil
 	txn := app.StartTransaction(name)
 	txn.SetName(name)
 
-	// TODO: Figure out if this is necessary
-	// Force a segment within the transaction
-	seg := txn.StartSegment(start.Job)
-
 	// End the transaction when this function exits
 	defer txn.End()
 
@@ -226,7 +225,6 @@ func (start *CliStart) transaction(app *newrelic.Application, flag *fileflag.Fil
 		log.Warn("Could not get Job status", "err", err)
 	}
 
-	seg.End()
 	log.Info("Transaction ended.")
 }
 
