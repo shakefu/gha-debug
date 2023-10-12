@@ -142,6 +142,8 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 		log.Fatal("Could not create flag file", "err", err)
 		return
 	}
+	// Ensure we clean up after ourselves to prevent hanging processes
+	defer flag.Close()
 
 	// Start watching for file events
 	go flag.Watch()
@@ -166,7 +168,6 @@ func (start *CliStart) Run(cli *Cli) (err error) {
 	app.Shutdown(60 * time.Second)
 
 	log.Debug("Shutdown complete.")
-	flag.WaitForDone()
 
 	log.Debug("All done.")
 	return
@@ -178,15 +179,14 @@ func (start *CliStart) transaction(app *newrelic.Application, flag *fileflag.Fil
 
 	// Start a new transaction
 	txn := app.StartTransaction(name)
+	txn.SetName(name)
+
 	// TODO: Figure out if this is necessary
 	// Force a segment within the transaction
 	seg := txn.StartSegment(start.Job)
 
 	// End the transaction when this function exits
-	// defer txn.End()
-	// TODO: Remove this
-	time.Sleep(5 * time.Second)
-	txn.End()
+	defer txn.End()
 
 	if txn.Name() == "" {
 		log.Warn("No name set on Transaction instance, implying it is misconfigured")
@@ -218,7 +218,6 @@ func (start *CliStart) transaction(app *newrelic.Application, flag *fileflag.Fil
 		log.Warn("Could not get Job status", "err", err)
 	}
 
-	flag.Close()
 	seg.End()
 	log.Info("Transaction ended.")
 }
