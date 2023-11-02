@@ -387,6 +387,7 @@ func (start *CliStart) NewRelicApp() (app *newrelic.Application, err error) {
 	licenseKey := strings.TrimSpace(string(start.NewRelicSecret.Contents))
 	// Application name is the repo name
 	appName := strings.TrimSpace(start.Repo)
+	appName = fmt.Sprintf("GitHub Actions / %s", appName)
 
 	// Create the NR Application for this transaction
 	app, err = newrelic.NewApplication(
